@@ -21,9 +21,11 @@ class CityscapesDiTDataset(Dataset):
         mask_path = os.path.join(self.mask_dir, img_name)
 
         image = Image.open(img_path).convert('RGB')
+        mask = Image.open(mask_path) 
 
         if self.transform:
             image = self.transform(image)
-            mask = torch.from_numpy(np.array(mask)).long()
+    
+        mask_tensor = torch.from_numpy(np.array(mask)).long()
 
-        return image, mask
+        return image, mask_tensor

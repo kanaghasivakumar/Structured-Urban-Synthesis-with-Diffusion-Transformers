@@ -11,7 +11,19 @@ from data.dataset import CityscapesDiTDataset
 from models.dit import DiT
 
 def train():
-    with wandb.init():
+    default_config = {
+        "batch_size": 2,    
+        "lr": 1e-4,
+        "epochs": 1,
+        "patch_size": 8,
+        "depth": 6,
+        "num_heads": 4
+    }
+
+    with wandb.init(
+        project="structured-urban-synthesis", 
+        config=default_config
+    ):
         config = wandb.config
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

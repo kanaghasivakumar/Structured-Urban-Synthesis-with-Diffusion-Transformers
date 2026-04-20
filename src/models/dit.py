@@ -91,7 +91,10 @@ class DiT(nn.Module):
         self.final_linear = nn.Linear(hidden_size, patch_size * patch_size * in_channels)
 
     def forward(self, x, t, mask):
-        mask_one_hot = F.one_hot(mask, num_classes=self.num_classes).float()
+        safe_mask = torch.clamp(mask, 0, self.num_classes - 1)
+        
+        mask_one_hot = F.one_hot(safe_mask, num_classes=self.num_classes).float()
+        
         mask_one_hot = mask_one_hot.permute(0, 3, 1, 2)
         
         x_combined = torch.cat([x, mask_one_hot], dim=1)
