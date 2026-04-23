@@ -37,14 +37,28 @@ def parallel_preprocess(raw_data_dir, output_dir, workers=8):
     os.makedirs(os.path.join(output_dir, 'images'), exist_ok=True)
     os.makedirs(os.path.join(output_dir, 'masks'), exist_ok=True)
 
-    img_list = sorted(list(Path(raw_data_dir).rglob("*_leftImg8bit.png")))
+    raw_path = Path(raw_data_dir).resolve()
+    img_list = sorted(list(raw_path.rglob("*_leftImg8bit.png")))
     
     tasks = []
     for img_path in img_list:
-        mask_path = str(img_path).replace('leftImg8bit', 'gtFine').replace('_leftImg8bit.png', '_gtFine_labelIds.png')
-        if os.path.exists(mask_path):
-            tasks.append((str(img_path), mask_path, output_dir))
+        parts = list(img_path.parts)
 
+        if 'leftImg8bit' in parts:
+            parts[parts.index('leftImg8bit')] = 'gtFine'
+            mask_path = Path(*parts)
+            mask_path = mask_path.with_name(mask_path.name.replace('_leftImg8bit.png', '_gtFine_labelIds.png'))
+            
+            if mask_path.exists():
+                tasks.append((str(img_path), str(mask_path), output_dir))
+
+    if not tasks:
+        print(f"DEBUG: Found {len(img_list)} images, but 0 matching masks.")
+        if img_list:
+            print(f"DEBUG: Expected mask at: {img_list[0]}") # Only shows if it fails
+        return
+
+    print(f"Found {len(tasks)} pairs. Starting with {workers} workers.")
     start_time = time.time()
     
     count = 0
@@ -54,16 +68,15 @@ def parallel_preprocess(raw_data_dir, output_dir, workers=8):
             if future.result():
                 count += 1
                 if count % 100 == 0:
-                    print(f"Progress: {count}/{len(tasks)} images processed.")
+                    print(f"Progress: {count}/{len(tasks)}")
 
     end_time = time.time()
-    print(f"PROFILING: Processed {count} images in {end_time - start_time:.2f}s using {workers} workers.")
+    print(f"PROFILING: {count} images in {end_time - start_time:.2f}s using {workers} workers.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, required=True, help="Path to raw Cityscapes data")
-    parser.add_argument("--output_dir", type=str, required=True, help="Where to save processed data")
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
-
     parallel_preprocess(args.data_dir, args.output_dir, args.workers)
