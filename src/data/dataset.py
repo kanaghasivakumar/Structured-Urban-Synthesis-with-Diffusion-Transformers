@@ -7,8 +7,9 @@ import numpy as np
 class CityscapesDiTDataset(Dataset):
     def __init__(self, root_dir, split='train', transform=None):
         self.root_dir = root_dir
-        self.image_dir = os.path.join(root_dir, 'images')
-        self.mask_dir = os.path.join(root_dir, 'masks')
+        self.split = split
+        self.image_dir = os.path.join(root_dir, split, 'images')
+        self.mask_dir = os.path.join(root_dir, split, 'masks')
         self.files = [f for f in os.listdir(self.image_dir) if f.endswith('.png')]
         self.transform = transform
 

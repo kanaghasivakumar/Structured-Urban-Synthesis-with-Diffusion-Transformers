@@ -2,7 +2,7 @@ project: structured-urban-synthesis
 program: src/train.py
 method: random
 metric:
-  name: epoch_loss
+  name: val_loss
   goal: minimize
 parameters:
   lr:

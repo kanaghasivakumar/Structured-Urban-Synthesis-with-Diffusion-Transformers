@@ -14,7 +14,7 @@ ID_MAP = {0: IGNORE_ID, 1: IGNORE_ID, 2: IGNORE_ID, 3: IGNORE_ID, 4: IGNORE_ID,
           25: 12, 26: 13, 27: 14, 28: 15, 29: IGNORE_ID, 30: IGNORE_ID, 
           31: 16, 32: 17, 33: 18, -1: IGNORE_ID}
 
-def process_single_pair(img_path, mask_path, output_dir, size=(128, 128)):
+def process_single_pair(img_path, mask_path, output_dir, split, size=(128, 128)):
     try:
         img = Image.open(img_path).convert('RGB')
         img = img.resize(size, Image.BILINEAR)
@@ -26,16 +26,17 @@ def process_single_pair(img_path, mask_path, output_dir, size=(128, 128)):
         mask = mask.resize(size, Image.NEAREST)
 
         base_name = Path(img_path).stem.replace('_leftImg8bit', '')
-        img.save(os.path.join(output_dir, 'images', f"{base_name}.png"))
-        mask.save(os.path.join(output_dir, 'masks', f"{base_name}.png"))
+        img.save(os.path.join(output_dir, split, 'images', f"{base_name}.png"))
+        mask.save(os.path.join(output_dir, split, 'masks', f"{base_name}.png"))
         return True
     except Exception as e:
         print(f"Error processing {img_path}: {e}")
         return False
 
 def parallel_preprocess(raw_data_dir, output_dir, workers=8):
-    os.makedirs(os.path.join(output_dir, 'images'), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, 'masks'), exist_ok=True)
+    for split in ['train', 'val', 'test']:
+        os.makedirs(os.path.join(output_dir, split, 'images'), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, split, 'masks'), exist_ok=True)
 
     raw_path = Path(raw_data_dir).resolve()
     img_list = sorted(list(raw_path.rglob("*_leftImg8bit.png")))
@@ -45,17 +46,16 @@ def parallel_preprocess(raw_data_dir, output_dir, workers=8):
         parts = list(img_path.parts)
 
         if 'leftImg8bit' in parts:
+            split = parts[parts.index('leftImg8bit') + 1]
             parts[parts.index('leftImg8bit')] = 'gtFine'
             mask_path = Path(*parts)
             mask_path = mask_path.with_name(mask_path.name.replace('_leftImg8bit.png', '_gtFine_labelIds.png'))
             
             if mask_path.exists():
-                tasks.append((str(img_path), str(mask_path), output_dir))
+                tasks.append((str(img_path), str(mask_path), output_dir, split))
 
     if not tasks:
         print(f"DEBUG: Found {len(img_list)} images, but 0 matching masks.")
-        if img_list:
-            print(f"DEBUG: Expected mask at: {img_list[0]}") # Only shows if it fails
         return
 
     print(f"Found {len(tasks)} pairs. Starting with {workers} workers.")

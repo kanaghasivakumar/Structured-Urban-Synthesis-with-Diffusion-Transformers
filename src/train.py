@@ -15,7 +15,7 @@ def train():
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--patch_size", type=int, default=8)
     parser.add_argument("--depth", type=int, default=6)
     parser.add_argument("--num_heads", type=int, default=4)
@@ -23,10 +23,7 @@ def train():
 
     sweep_config = vars(args)
 
-    with wandb.init(
-        project="structured-urban-synthesis", 
-        config=sweep_config
-    ):
+    with wandb.init(project="structured-urban-synthesis", config=sweep_config):
         config = wandb.config
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -44,6 +41,15 @@ def train():
             pin_memory=True
         )
 
+        val_ds = CityscapesDiTDataset(root_dir="processed_data", split='val', transform=transform)
+        val_loader = DataLoader(
+            val_ds, 
+            batch_size=config.batch_size, 
+            shuffle=False, 
+            num_workers=4,
+            pin_memory=True
+        )
+
         model = DiT(
             img_size=128,
             patch_size=config.patch_size,
@@ -54,14 +60,17 @@ def train():
         ).to(device)
         
         optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
-
         scaler = torch.amp.GradScaler('cuda')
+
+        best_val_loss = float('inf')
+        patience = 3
+        patience_counter = 0
 
         for epoch in range(config.epochs):
             model.train()
             epoch_loss = 0
             
-            pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
             
             for step, (images, masks) in enumerate(pbar):
                 images = images.to(device)
@@ -77,7 +86,6 @@ def train():
                     loss = F.mse_loss(predicted_noise, noise)
                 
                 optimizer.zero_grad()
-
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
@@ -92,7 +100,41 @@ def train():
                 })
 
             avg_epoch_loss = epoch_loss / len(train_loader)
-            wandb.log({"epoch_loss": avg_epoch_loss})
+            
+            model.eval()
+            val_loss = 0
+            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch} [Val]")
+            
+            with torch.no_grad():
+                for images, masks in val_pbar:
+                    images = images.to(device)
+                    masks = masks.to(device)
+                    
+                    t = torch.randint(0, 1000, (images.shape[0],), device=device).long()
+                    noise = torch.randn_like(images)
+                    
+                    with torch.amp.autocast('cuda'):
+                        predicted_noise = model(images + noise, t, masks)
+                        loss = F.mse_loss(predicted_noise, noise)
+                    
+                    val_loss += loss.item()
+                    val_pbar.set_postfix({"val_loss": loss.item()})
+            
+            avg_val_loss = val_loss / len(val_loader)
+            
+            wandb.log({
+                "epoch_loss": avg_epoch_loss,
+                "val_loss": avg_val_loss
+            })
+
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Stopping early at epoch {epoch}. Validation loss diverged from training loss.")
+                    break
 
 if __name__ == "__main__":
     train()
