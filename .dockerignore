@@ -1,0 +1,8 @@
+.git
+.env
+data/
+processed_data/
+test_out/
+dit-env/
+venv/
+wandb/
