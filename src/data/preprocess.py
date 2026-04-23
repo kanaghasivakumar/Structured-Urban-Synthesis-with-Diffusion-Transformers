@@ -1,5 +1,6 @@
 import os
 import time
+import argparse
 from pathlib import Path
 from PIL import Image
 from concurrent.futures import ProcessPoolExecutor
@@ -20,9 +21,9 @@ def process_single_pair(img_path, mask_path, output_dir, size=(128, 128)):
         
         mask = Image.open(mask_path)
         mask_np = np.array(mask)
-        mapped_mask = np.vectorize(ID_MAP.get)(mask_np, IGNORE_ID).astype(np.uint8)
+        mapped_mask = np.vectorize(lambda x: ID_MAP.get(x, IGNORE_ID))(mask_np).astype(np.uint8)
         mask = Image.fromarray(mapped_mask)
-        mask = mask.resize(size, Image.NEAREST) # Nearest for labels!
+        mask = mask.resize(size, Image.NEAREST)
 
         base_name = Path(img_path).stem.replace('_leftImg8bit', '')
         img.save(os.path.join(output_dir, 'images', f"{base_name}.png"))
@@ -33,7 +34,36 @@ def process_single_pair(img_path, mask_path, output_dir, size=(128, 128)):
         return False
 
 def parallel_preprocess(raw_data_dir, output_dir, workers=8):
+    os.makedirs(os.path.join(output_dir, 'images'), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'masks'), exist_ok=True)
+
+    img_list = sorted(list(Path(raw_data_dir).rglob("*_leftImg8bit.png")))
+    
+    tasks = []
+    for img_path in img_list:
+        mask_path = str(img_path).replace('leftImg8bit', 'gtFine').replace('_leftImg8bit.png', '_gtFine_labelIds.png')
+        if os.path.exists(mask_path):
+            tasks.append((str(img_path), mask_path, output_dir))
+
     start_time = time.time()
     
+    count = 0
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(process_single_pair, *t) for t in tasks]
+        for future in futures:
+            if future.result():
+                count += 1
+                if count % 100 == 0:
+                    print(f"Progress: {count}/{len(tasks)} images processed.")
+
     end_time = time.time()
     print(f"PROFILING: Processed {count} images in {end_time - start_time:.2f}s using {workers} workers.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, required=True, help="Path to raw Cityscapes data")
+    parser.add_argument("--output_dir", type=str, required=True, help="Where to save processed data")
+    parser.add_argument("--workers", type=int, default=8)
+    args = parser.parse_args()
+
+    parallel_preprocess(args.data_dir, args.output_dir, args.workers)
