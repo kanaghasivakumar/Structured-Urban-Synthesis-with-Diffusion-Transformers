@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from einops import rearrange
+from torch.utils.checkpoint import checkpoint  
 
 class TimestepEmbedder(nn.Module):
     def __init__(self, hidden_size, frequency_embedding_size=256):
@@ -92,23 +93,21 @@ class DiT(nn.Module):
 
     def forward(self, x, t, mask):
         safe_mask = torch.clamp(mask, 0, self.num_classes - 1)
-        
         mask_one_hot = F.one_hot(safe_mask, num_classes=self.num_classes).float()
-        
         mask_one_hot = mask_one_hot.permute(0, 3, 1, 2)
         
         x_combined = torch.cat([x, mask_one_hot], dim=1)
-        
         x_patched = self.x_embedder(x_combined)  
-        
         x_seq = rearrange(x_patched, 'b c h w -> b (h w) c')
-        
         x_seq = x_seq + self.pos_embed
         
         t_emb = self.t_embedder(t)
         
         for block in self.blocks:
-            x_seq = block(x_seq, t_emb)
+            if self.training:
+                x_seq = checkpoint(block, x_seq, t_emb, use_reentrant=False)
+            else:
+                x_seq = block(x_seq, t_emb)
             
         shift, scale = self.final_shift_scale(t_emb).chunk(2, dim=1)
         x_seq = self.final_norm(x_seq) * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
