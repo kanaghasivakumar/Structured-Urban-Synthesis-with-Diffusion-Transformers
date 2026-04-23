@@ -6,23 +6,26 @@ import torchvision.transforms as T
 from tqdm import tqdm
 import wandb
 import os
+import argparse
 
 from data.dataset import CityscapesDiTDataset
 from models.dit import DiT
 
 def train():
-    default_config = {
-        "batch_size": 2,    
-        "lr": 1e-4,
-        "epochs": 1,
-        "patch_size": 8,
-        "depth": 6,
-        "num_heads": 4
-    }
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--patch_size", type=int, default=8)
+    parser.add_argument("--depth", type=int, default=6)
+    parser.add_argument("--num_heads", type=int, default=4)
+    args = parser.parse_args()
+
+    sweep_config = vars(args)
 
     with wandb.init(
         project="structured-urban-synthesis", 
-        config=default_config
+        config=sweep_config
     ):
         config = wandb.config
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,7 +40,7 @@ def train():
             train_ds, 
             batch_size=config.batch_size, 
             shuffle=True, 
-            num_workers=4,
+            num_workers=8,
             pin_memory=True
         )
 
@@ -52,11 +55,14 @@ def train():
         
         optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
+        scaler = torch.amp.GradScaler('cuda')
+
         for epoch in range(config.epochs):
             model.train()
             epoch_loss = 0
             
             pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+            
             for step, (images, masks) in enumerate(pbar):
                 images = images.to(device)
                 masks = masks.to(device)
@@ -66,12 +72,15 @@ def train():
                 
                 noisy_images = images + noise
                 
-                predicted_noise = model(noisy_images, t, masks)
-                loss = F.mse_loss(predicted_noise, noise)
+                with torch.amp.autocast('cuda'):
+                    predicted_noise = model(noisy_images, t, masks)
+                    loss = F.mse_loss(predicted_noise, noise)
                 
                 optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
                 
                 epoch_loss += loss.item()
                 pbar.set_postfix({"loss": loss.item()})

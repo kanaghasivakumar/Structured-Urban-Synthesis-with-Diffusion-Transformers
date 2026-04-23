@@ -1,5 +1,6 @@
+project: structured-urban-synthesis
 program: src/train.py
-method: hyperband
+method: random
 metric:
   name: epoch_loss
   goal: minimize
@@ -9,7 +10,7 @@ parameters:
     min: 1e-5
     max: 1e-3
   batch_size:
-    values: [16, 32]
+    values: [64, 128]
   patch_size:
     values: [4, 8, 16]
   depth:
@@ -20,5 +21,5 @@ parameters:
     value: 50
 early_terminate:
   type: hyperband
-  smin: 5
+  min_iter: 5
   eta: 3
