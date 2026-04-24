@@ -37,6 +37,7 @@ def train():
     parser.add_argument("--num_heads", type=int, default=6)
     parser.add_argument("--head_dim", type=int, default=64)
     parser.add_argument("--warmup_epochs", type=int, default=5)
+    parser.add_argument("--lr_batch", type=str, default="2e-4,64")
     args = parser.parse_args()
 
     with wandb.init(project="structured-urban-synthesis", config=vars(args)):
