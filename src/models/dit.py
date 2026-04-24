@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from einops import rearrange
-from torch.utils.checkpoint import checkpoint  
+from torch.utils.checkpoint import checkpoint
 
 class TimestepEmbedder(nn.Module):
     def __init__(self, hidden_size, frequency_embedding_size=256):
@@ -18,72 +18,90 @@ class TimestepEmbedder(nn.Module):
     def forward(self, t):
         half = self.frequency_embedding_size // 2
         freqs = torch.exp(
-            -math.log(10000) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half
+            -math.log(10000) * torch.arange(half, dtype=torch.float32, device=t.device) / half
         )
         args = t[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         return self.mlp(embedding)
+
+
+class MaskEmbedder(nn.Module):
+    def __init__(self, num_classes, hidden_size):
+        super().__init__()
+        self.proj = nn.Sequential(
+            nn.Linear(num_classes, hidden_size),
+            nn.SiLU(),
+            nn.Linear(hidden_size, hidden_size)
+        )
+        self.num_classes = num_classes
+
+    def forward(self, mask):
+        safe_mask = torch.clamp(mask, 0, self.num_classes - 1)
+        one_hot = F.one_hot(safe_mask, num_classes=self.num_classes).float() 
+        pooled = one_hot.mean(dim=(1, 2))
+        return self.proj(pooled) 
+
 
 class DiTBlock(nn.Module):
     def __init__(self, hidden_size, num_heads):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False)
         self.attn = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
-        
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False)
         self.mlp = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 4),
             nn.GELU(),
             nn.Linear(hidden_size * 4, hidden_size)
         )
-        
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
     def forward(self, x, c):
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
-        
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = \
+            self.adaLN_modulation(c).chunk(6, dim=1)
+
         norm_x = self.norm1(x) * (1 + scale_msa.unsqueeze(1)) + shift_msa.unsqueeze(1)
         attn_out, _ = self.attn(norm_x, norm_x, norm_x)
         x = x + gate_msa.unsqueeze(1) * attn_out
-        
+
         norm_x = self.norm2(x) * (1 + scale_mlp.unsqueeze(1)) + shift_mlp.unsqueeze(1)
-        mlp_out = self.mlp(norm_x)
-        x = x + gate_mlp.unsqueeze(1) * mlp_out
-        
+        x = x + gate_mlp.unsqueeze(1) * self.mlp(norm_x)
         return x
 
 class DiT(nn.Module):
     def __init__(
-        self, 
-        img_size=128, 
-        patch_size=8, 
-        in_channels=3, 
-        num_classes=19, 
-        hidden_size=384, 
-        depth=6, 
-        num_heads=6
+        self,
+        img_size=128,
+        patch_size=16,
+        in_channels=3,
+        num_classes=19,
+        head_dim=64,      
+        num_heads=6,
+        depth=6,
     ):
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
         self.in_channels = in_channels
         self.num_classes = num_classes
-        
-        total_channels = in_channels + num_classes
-        self.x_embedder = nn.Conv2d(total_channels, hidden_size, kernel_size=patch_size, stride=patch_size)
-        
+
+        hidden_size = num_heads * head_dim
+        self.hidden_size = hidden_size
+
+        self.x_embedder = nn.Conv2d(in_channels, hidden_size, kernel_size=patch_size, stride=patch_size)
+
         num_patches = (img_size // patch_size) ** 2
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size))
-        
+        self.pos_embed = nn.Parameter(self._sinusoidal_pos_embed(num_patches, hidden_size), requires_grad=False)
+
         self.t_embedder = TimestepEmbedder(hidden_size)
-        
+        self.mask_embedder = MaskEmbedder(num_classes, hidden_size)
+
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads) for _ in range(depth)
         ])
-        
+
         self.final_norm = nn.LayerNorm(hidden_size, elementwise_affine=False)
         self.final_shift_scale = nn.Sequential(
             nn.SiLU(),
@@ -91,30 +109,42 @@ class DiT(nn.Module):
         )
         self.final_linear = nn.Linear(hidden_size, patch_size * patch_size * in_channels)
 
+        self._init_weights()
+
+    @staticmethod
+    def _sinusoidal_pos_embed(num_patches, hidden_size):
+        pos = torch.arange(num_patches).unsqueeze(1).float()
+        dim = torch.arange(0, hidden_size, 2).float()
+        angles = pos / torch.pow(10000, dim / hidden_size)
+        pe = torch.zeros(1, num_patches, hidden_size)
+        pe[0, :, 0::2] = torch.sin(angles)
+        pe[0, :, 1::2] = torch.cos(angles)
+        return pe
+
+    def _init_weights(self):
+        nn.init.zeros_(self.final_linear.weight)
+        nn.init.zeros_(self.final_linear.bias)
+        for block in self.blocks:
+            nn.init.zeros_(block.adaLN_modulation[-1].weight)
+            nn.init.zeros_(block.adaLN_modulation[-1].bias)
+
     def forward(self, x, t, mask):
-        safe_mask = torch.clamp(mask, 0, self.num_classes - 1)
-        mask_one_hot = F.one_hot(safe_mask, num_classes=self.num_classes).float()
-        mask_one_hot = mask_one_hot.permute(0, 3, 1, 2)
-        
-        x_combined = torch.cat([x, mask_one_hot], dim=1)
-        x_patched = self.x_embedder(x_combined)  
-        x_seq = rearrange(x_patched, 'b c h w -> b (h w) c')
+
+        x_seq = rearrange(self.x_embedder(x), 'b c h w -> b (h w) c')
         x_seq = x_seq + self.pos_embed
-        
-        t_emb = self.t_embedder(t)
-        
+
+        c = self.t_embedder(t) + self.mask_embedder(mask)  
+
         for block in self.blocks:
             if self.training:
-                x_seq = checkpoint(block, x_seq, t_emb, use_reentrant=False)
+                x_seq = checkpoint(block, x_seq, c, use_reentrant=False)
             else:
-                x_seq = block(x_seq, t_emb)
-            
-        shift, scale = self.final_shift_scale(t_emb).chunk(2, dim=1)
+                x_seq = block(x_seq, c)
+
+        shift, scale = self.final_shift_scale(c).chunk(2, dim=1)
         x_seq = self.final_norm(x_seq) * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-        x_seq = self.final_linear(x_seq) 
-        
+        x_seq = self.final_linear(x_seq)
+
         h = w = self.img_size // self.patch_size
         p = self.patch_size
-        out = rearrange(x_seq, 'b (h w) (p1 p2 c) -> b c (h p1) (w p2)', h=h, w=w, p1=p, p2=p)
-        
-        return out
+        return rearrange(x_seq, 'b (h w) (p1 p2 c) -> b c (h p1) (w p2)', h=h, w=w, p1=p, p2=p)

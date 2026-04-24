@@ -4,22 +4,26 @@ method: random
 metric:
   name: val_loss
   goal: minimize
-parameters:
-  lr:
-    distribution: log_uniform_values
-    min: 1e-5
-    max: 1e-3
-  batch_size:
-    values: [64, 128]
+parameters:\
+  lr_batch:
+    values:
+      - "1e-4,32"
+      - "2e-4,64"
+      - "4e-4,128"
+      - "8e-4,128"
   patch_size:
-    values: [8, 16]
+    value: [8, 16]
   depth:
-    values: [6, 12, 18]
+    value: [4, 6, 8, 12]
   num_heads:
-    values: [4, 8, 12]
+    values: [4, 6, 8, 12]
+  head_dim:
+    value: 64
+  warmup_epochs:
+    values: [3, 5]
   epochs:
-    value: 50
+    value: 75
 early_terminate:
   type: hyperband
-  min_iter: 5
+  min_iter: 15
   eta: 3
