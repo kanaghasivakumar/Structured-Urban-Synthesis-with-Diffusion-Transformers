@@ -4,7 +4,7 @@ method: random
 metric:
   name: val_loss
   goal: minimize
-parameters:\
+parameters:
   lr_batch:
     values:
       - "1e-4,32"
