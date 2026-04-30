@@ -80,13 +80,13 @@ def train():
             if step < warmup_steps:
                 return step / max(1, warmup_steps)
             progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-            return 0.5 * (1.0 + torch.cos(torch.tensor(3.14159 * progress)).item())
+            return max(0.05, 0.5 * (1.0 + torch.cos(torch.tensor(3.14159 * progress)).item()))
 
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         scaler = torch.amp.GradScaler('cuda')
 
         best_val_loss = float('inf')
-        patience, patience_counter = 10, 0
+        patience, patience_counter = 20, 0
         global_step = 0
 
         for epoch in range(config.epochs):
@@ -160,6 +160,7 @@ def train():
                 if patience_counter >= patience:
                     print(f"Early stop at epoch {epoch}.")
                     break
+            torch.save(model.state_dict(), "last_model.pt") 
 
 
 if __name__ == "__main__":

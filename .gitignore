@@ -25,3 +25,10 @@ Thumbs.db
 #log files
 *.log   
 wandb/
+
+# sweep files
+*.csv
+
+#files to ignore for submission
+README.md
+check.py
