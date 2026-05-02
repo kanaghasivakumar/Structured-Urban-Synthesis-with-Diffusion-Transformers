@@ -38,7 +38,7 @@ class MaskEmbedder(nn.Module):
     def forward(self, mask):
         valid = (mask >= 0) & (mask < self.num_classes)  
         one_hot = F.one_hot(mask.clamp(0, self.num_classes - 1), num_classes=self.num_classes).float()
-        one_hot[~valid] = 0.0  # zero out ignore pixels before pooling
+        one_hot[~valid] = 0.0  
         pooled = one_hot.sum(dim=(1, 2)) / valid.sum(dim=(1, 2)).float().unsqueeze(-1).clamp(min=1)
         return self.proj(pooled)
 

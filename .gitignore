@@ -32,3 +32,4 @@ wandb/
 #files to ignore for submission
 README.md
 check.py
+/inference_out/
