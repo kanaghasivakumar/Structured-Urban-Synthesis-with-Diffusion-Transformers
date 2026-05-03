@@ -51,7 +51,7 @@ def train():
             T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
-        train_ds = CityscapesDiTDataset(root_dir="processed_data", split='train', transform=transform)
+        train_ds = CityscapesDiTDataset(root_dir="processed_data", split='train', transform=transform, augment=True)
         val_ds   = CityscapesDiTDataset(root_dir="processed_data", split='val',   transform=transform)
 
         train_loader = DataLoader(train_ds, batch_size=config.batch_size, shuffle=True,
