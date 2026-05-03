@@ -156,31 +156,36 @@ class DiT(nn.Module):
         return rearrange(x_seq, 'b (h w) (p1 p2 c) -> b c (h p1) (w p2)', h=h, w=w, p1=p, p2=p)
     
     @torch.no_grad()
-    def p_sample(self, mask, device, T=1000, beta_start=1e-4, beta_end=0.02, ddim_steps=50, eta=0.0):
+
+    def p_sample(self, mask, device, T=1000, beta_start=1e-4, beta_end=0.02):
         betas = torch.linspace(beta_start, beta_end, T, device=device)
         alphas = 1.0 - betas
         alpha_cumprod = torch.cumprod(alphas, dim=0)
-
-        step_indices = torch.linspace(0, T - 1, ddim_steps, dtype=torch.long)
-        ac = alpha_cumprod[step_indices]
-        ac_prev = F.pad(ac[:-1], (1, 0), value=1.0)
+        alpha_cumprod_prev = F.pad(alpha_cumprod[:-1], (1, 0), value=1.0)
 
         b = mask.shape[0]
         x = torch.randn(b, self.in_channels, self.img_size, self.img_size, device=device)
 
-        for i in reversed(range(ddim_steps)):
-            t = torch.full((b,), step_indices[i], device=device, dtype=torch.long)
+        for t_val in reversed(range(T)):
+            t = torch.full((b,), t_val, device=device, dtype=torch.long)
+
             pred_noise = self(x, t, mask)
 
-            ac_i  = ac[i]
-            acp_i = ac_prev[i]
+            ac  = alpha_cumprod[t_val]
+            acp = alpha_cumprod_prev[t_val]
+            beta = betas[t_val]
+            alpha = alphas[t_val]
 
-            x0_pred = (x - (1 - ac_i).sqrt() * pred_noise) / ac_i.sqrt()
+            x0_pred = (x - (1 - ac).sqrt() * pred_noise) / ac.sqrt()
             x0_pred = x0_pred.clamp(-1, 1)
 
-            sigma = eta * ((1 - acp_i) / (1 - ac_i) * (1 - ac_i / acp_i)).sqrt()
-            x = acp_i.sqrt() * x0_pred + (1 - acp_i - sigma ** 2).clamp(min=0).sqrt() * pred_noise
-            if eta > 0 and i > 0:
-                x = x + sigma * torch.randn_like(x)
+            mean = (acp.sqrt() * beta / (1 - ac)) * x0_pred + \
+                (alpha.sqrt() * (1 - acp) / (1 - ac)) * x
 
-        return x
+            if t_val == 0:
+                x = mean
+            else:
+                variance = beta * (1 - acp) / (1 - ac)
+                x = mean + variance.sqrt() * torch.randn_like(x)
+
+        return x  
