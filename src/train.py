@@ -38,6 +38,7 @@ def train():
     parser.add_argument("--head_dim", type=int, default=64)
     parser.add_argument("--warmup_epochs", type=int, default=5)
     parser.add_argument("--lr_batch", type=str, default="2e-4,64")
+    parser.add_argument("--cfg_dropout", type=float, default=0.1)
     args = parser.parse_args()
 
     with wandb.init(project="structured-urban-synthesis", config=vars(args)):
@@ -67,7 +68,7 @@ def train():
             head_dim=config.head_dim,
             num_heads=config.num_heads,
             depth=config.depth,
-            cfg_dropout=0.1,
+            cfg_dropout=config.cfg_dropout,
         ).to(device)
 
         schedule = make_ddpm_schedule(T=1000, device=device)
