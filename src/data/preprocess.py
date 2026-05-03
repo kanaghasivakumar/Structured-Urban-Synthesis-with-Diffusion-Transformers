@@ -47,12 +47,20 @@ def parallel_preprocess(raw_data_dir, output_dir, workers=8):
 
         if 'leftImg8bit' in parts:
             split = parts[parts.index('leftImg8bit') + 1]
-            parts[parts.index('leftImg8bit')] = 'gtFine'
-            mask_path = Path(*parts)
-            mask_path = mask_path.with_name(mask_path.name.replace('_leftImg8bit.png', '_gtFine_labelIds.png'))
-            
+            if split == 'train_extra':
+                coarse_parts = parts.copy()
+                coarse_parts[coarse_parts.index('leftImg8bit')] = 'gtCoarse'
+                mask_path = Path(*coarse_parts)
+                mask_path = mask_path.with_name(mask_path.name.replace('_leftImg8bit.png', '_gtCoarse_labelIds.png'))
+                output_split = 'train'
+            else:
+                parts[parts.index('leftImg8bit')] = 'gtFine'
+                mask_path = Path(*parts)
+                mask_path = mask_path.with_name(mask_path.name.replace('_leftImg8bit.png', '_gtFine_labelIds.png'))
+                output_split = split
+
             if mask_path.exists():
-                tasks.append((str(img_path), str(mask_path), output_dir, split))
+                tasks.append((str(img_path), str(mask_path), output_dir, output_split))
 
     if not tasks:
         print(f"DEBUG: Found {len(img_list)} images, but 0 matching masks.")
