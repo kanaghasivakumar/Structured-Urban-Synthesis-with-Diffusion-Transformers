@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--out_dir", type=str, default="inference_out")
     parser.add_argument("--model_path", type=str, default="best_model.pt")
     parser.add_argument("--data_root", type=str, default="processed_data")
+    parser.add_argument("--ddim_steps", type=int, default=50)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -56,7 +57,7 @@ def main():
         mask_np  = np.array(mask_pil)
         mask_t   = torch.from_numpy(mask_np).long().unsqueeze(0).to(device)
 
-        sample = model.p_sample(mask_t, device=device)
+        sample = model.p_sample(mask_t, device=device, ddim_steps=args.ddim_steps)
         gen_np = (sample.squeeze(0).permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5).clip(0, 1)
         gen_np = (gen_np * 255).astype(np.uint8)
 
