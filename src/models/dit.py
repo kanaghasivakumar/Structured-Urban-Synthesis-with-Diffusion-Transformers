@@ -91,13 +91,12 @@ class DiT(nn.Module):
         hidden_size = num_heads * head_dim
         self.hidden_size = hidden_size
 
-        self.x_embedder = nn.Conv2d(in_channels, hidden_size, kernel_size=patch_size, stride=patch_size)
+        self.x_embedder = nn.Conv2d(in_channels + num_classes, hidden_size, kernel_size=patch_size, stride=patch_size)
 
         num_patches = (img_size // patch_size) ** 2
         self.pos_embed = nn.Parameter(self._sinusoidal_pos_embed(num_patches, hidden_size), requires_grad=False)
 
         self.t_embedder = TimestepEmbedder(hidden_size)
-        self.mask_embedder = MaskEmbedder(num_classes, hidden_size)
 
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads) for _ in range(depth)
@@ -131,10 +130,16 @@ class DiT(nn.Module):
 
     def forward(self, x, t, mask):
 
-        x_seq = rearrange(self.x_embedder(x), 'b c h w -> b (h w) c')
+        safe_mask = mask.clamp(0, self.num_classes - 1)
+        mask_onehot = F.one_hot(safe_mask, num_classes=self.num_classes).float()
+        mask_onehot = mask_onehot.permute(0, 3, 1, 2) 
+        ignore = (mask < 0) | (mask >= self.num_classes)
+        mask_onehot[ignore.unsqueeze(1).expand_as(mask_onehot)] = 0.0
+        x_input = torch.cat([x, mask_onehot], dim=1)
+        x_seq = rearrange(self.x_embedder(x_input), 'b c h w -> b (h w) c')
         x_seq = x_seq + self.pos_embed
 
-        c = self.t_embedder(t) + self.mask_embedder(mask)  
+        c = self.t_embedder(t)
 
         for block in self.blocks:
             if self.training:
