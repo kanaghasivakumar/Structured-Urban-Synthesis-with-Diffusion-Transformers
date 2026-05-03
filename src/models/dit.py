@@ -25,22 +25,23 @@ class TimestepEmbedder(nn.Module):
         return self.mlp(embedding)
 
 
-class MaskEmbedder(nn.Module):
-    def __init__(self, num_classes, hidden_size):
+class MaskPatchEmbedder(nn.Module):
+    def __init__(self, num_classes, hidden_size, patch_size, img_size):
         super().__init__()
-        self.proj = nn.Sequential(
-            nn.Linear(num_classes, hidden_size),
-            nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size)
+        self.proj = nn.Conv2d(num_classes, hidden_size, kernel_size=patch_size, stride=patch_size)
+        num_patches = (img_size // patch_size) ** 2
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, num_patches, hidden_size), requires_grad=True
         )
         self.num_classes = num_classes
 
     def forward(self, mask):
-        valid = (mask >= 0) & (mask < self.num_classes)  
+        valid = (mask >= 0) & (mask < self.num_classes)
         one_hot = F.one_hot(mask.clamp(0, self.num_classes - 1), num_classes=self.num_classes).float()
-        one_hot[~valid] = 0.0  
-        pooled = one_hot.sum(dim=(1, 2)) / valid.sum(dim=(1, 2)).float().unsqueeze(-1).clamp(min=1)
-        return self.proj(pooled)
+        one_hot[~valid] = 0.0
+        one_hot = one_hot.permute(0, 3, 1, 2)
+        tokens = rearrange(self.proj(one_hot), 'b c h w -> b (h w) c')
+        return tokens + self.pos_embed
 
 
 class DiTBlock(nn.Module):
@@ -48,6 +49,8 @@ class DiTBlock(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False)
         self.attn = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
+        self.norm_cross = nn.LayerNorm(hidden_size)
+        self.cross_attn = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False)
         self.mlp = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 4),
@@ -59,7 +62,7 @@ class DiTBlock(nn.Module):
             nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
-    def forward(self, x, c):
+    def forward(self, x, c, mask_tokens):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = \
             self.adaLN_modulation(c).chunk(6, dim=1)
 
@@ -67,9 +70,14 @@ class DiTBlock(nn.Module):
         attn_out, _ = self.attn(norm_x, norm_x, norm_x)
         x = x + gate_msa.unsqueeze(1) * attn_out
 
+        q = self.norm_cross(x)
+        cross_out, _ = self.cross_attn(q, mask_tokens, mask_tokens)
+        x = x + cross_out
+
         norm_x = self.norm2(x) * (1 + scale_mlp.unsqueeze(1)) + shift_mlp.unsqueeze(1)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(norm_x)
         return x
+
 
 class DiT(nn.Module):
     def __init__(
@@ -78,25 +86,30 @@ class DiT(nn.Module):
         patch_size=16,
         in_channels=3,
         num_classes=19,
-        head_dim=64,      
+        head_dim=64,
         num_heads=6,
         depth=6,
+        cfg_dropout=0.1,
     ):
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
         self.in_channels = in_channels
         self.num_classes = num_classes
+        self.cfg_dropout = cfg_dropout
 
         hidden_size = num_heads * head_dim
         self.hidden_size = hidden_size
 
-        self.x_embedder = nn.Conv2d(in_channels + num_classes, hidden_size, kernel_size=patch_size, stride=patch_size)
+        self.x_embedder = nn.Conv2d(in_channels, hidden_size, kernel_size=patch_size, stride=patch_size)
 
         num_patches = (img_size // patch_size) ** 2
         self.pos_embed = nn.Parameter(self._sinusoidal_pos_embed(num_patches, hidden_size), requires_grad=False)
 
         self.t_embedder = TimestepEmbedder(hidden_size)
+        self.mask_embedder = MaskPatchEmbedder(num_classes, hidden_size, patch_size, img_size)
+
+        self.null_mask_tokens = nn.Parameter(torch.zeros(1, num_patches, hidden_size))
 
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads) for _ in range(depth)
@@ -128,24 +141,27 @@ class DiT(nn.Module):
             nn.init.zeros_(block.adaLN_modulation[-1].weight)
             nn.init.zeros_(block.adaLN_modulation[-1].bias)
 
-    def forward(self, x, t, mask):
-
-        safe_mask = mask.clamp(0, self.num_classes - 1)
-        mask_onehot = F.one_hot(safe_mask, num_classes=self.num_classes).float()
-        mask_onehot = mask_onehot.permute(0, 3, 1, 2) 
-        ignore = (mask < 0) | (mask >= self.num_classes)
-        mask_onehot[ignore.unsqueeze(1).expand_as(mask_onehot)] = 0.0
-        x_input = torch.cat([x, mask_onehot], dim=1)
-        x_seq = rearrange(self.x_embedder(x_input), 'b c h w -> b (h w) c')
+    def forward(self, x, t, mask, force_drop_mask=False):
+        x_seq = rearrange(self.x_embedder(x), 'b c h w -> b (h w) c')
         x_seq = x_seq + self.pos_embed
 
         c = self.t_embedder(t)
 
+        if self.training and not force_drop_mask:
+            drop = torch.rand(x.shape[0], device=x.device) < self.cfg_dropout
+            mask_tokens = self.mask_embedder(mask)
+            null = self.null_mask_tokens.expand(x.shape[0], -1, -1)
+            mask_tokens = torch.where(drop.view(-1, 1, 1), null, mask_tokens)
+        elif force_drop_mask:
+            mask_tokens = self.null_mask_tokens.expand(x.shape[0], -1, -1)
+        else:
+            mask_tokens = self.mask_embedder(mask)
+
         for block in self.blocks:
             if self.training:
-                x_seq = checkpoint(block, x_seq, c, use_reentrant=False)
+                x_seq = checkpoint(block, x_seq, c, mask_tokens, use_reentrant=False)
             else:
-                x_seq = block(x_seq, c)
+                x_seq = block(x_seq, c, mask_tokens)
 
         shift, scale = self.final_shift_scale(c).chunk(2, dim=1)
         x_seq = self.final_norm(x_seq) * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
@@ -154,10 +170,9 @@ class DiT(nn.Module):
         h = w = self.img_size // self.patch_size
         p = self.patch_size
         return rearrange(x_seq, 'b (h w) (p1 p2 c) -> b c (h p1) (w p2)', h=h, w=w, p1=p, p2=p)
-    
-    @torch.no_grad()
 
-    def p_sample(self, mask, device, T=1000, beta_start=1e-4, beta_end=0.02):
+    @torch.no_grad()
+    def p_sample(self, mask, device, T=1000, beta_start=1e-4, beta_end=0.02, guidance_scale=3.0):
         betas = torch.linspace(beta_start, beta_end, T, device=device)
         alphas = 1.0 - betas
         alpha_cumprod = torch.cumprod(alphas, dim=0)
@@ -169,7 +184,9 @@ class DiT(nn.Module):
         for t_val in reversed(range(T)):
             t = torch.full((b,), t_val, device=device, dtype=torch.long)
 
-            pred_noise = self(x, t, mask)
+            pred_cond = self(x, t, mask)
+            pred_uncond = self(x, t, mask, force_drop_mask=True)
+            pred_noise = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
 
             ac  = alpha_cumprod[t_val]
             acp = alpha_cumprod_prev[t_val]
@@ -188,4 +205,4 @@ class DiT(nn.Module):
                 variance = beta * (1 - acp) / (1 - ac)
                 x = mean + variance.sqrt() * torch.randn_like(x)
 
-        return x  
+        return x

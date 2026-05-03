@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--out_dir", type=str, default="inference_out")
     parser.add_argument("--model_path", type=str, default="best_model.pt")
     parser.add_argument("--data_root", type=str, default="processed_data")
+    parser.add_argument("--guidance_scale", type=float, default=3.0)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -35,7 +36,8 @@ def main():
 
     model = DiT(
         img_size=128, patch_size=8, in_channels=3,
-        num_classes=19, head_dim=64, num_heads=12, depth=12
+        num_classes=19, head_dim=64, num_heads=12, depth=12,
+        cfg_dropout=0.1,
     ).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
@@ -56,7 +58,7 @@ def main():
         mask_np  = np.array(mask_pil)
         mask_t   = torch.from_numpy(mask_np).long().unsqueeze(0).to(device)
 
-        sample = model.p_sample(mask_t, device=device)
+        sample = model.p_sample(mask_t, device=device, guidance_scale=args.guidance_scale)
         gen_np = (sample.squeeze(0).permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5).clip(0, 1)
         gen_np = (gen_np * 255).astype(np.uint8)
 

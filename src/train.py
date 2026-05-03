@@ -67,6 +67,7 @@ def train():
             head_dim=config.head_dim,
             num_heads=config.num_heads,
             depth=config.depth,
+            cfg_dropout=0.1,
         ).to(device)
 
         schedule = make_ddpm_schedule(T=1000, device=device)

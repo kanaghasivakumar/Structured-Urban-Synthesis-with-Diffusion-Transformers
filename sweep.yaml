@@ -13,6 +13,8 @@ parameters:
       - "8e-4,128"
   patch_size:
     values: [8, 16]
+  cfg_dropout:
+    values: [0.05, 0.1, 0.15]
   depth:
     values: [4, 6, 8, 12]
   num_heads:
@@ -22,8 +24,8 @@ parameters:
   warmup_epochs:
     values: [3, 5]
   epochs:
-    value: 75
+    value: 100
 early_terminate:
   type: hyperband
-  min_iter: 15
+  min_iter: 20
   eta: 3
