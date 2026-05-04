@@ -36,8 +36,8 @@ def main():
 
     model = DiT(
         img_size=128, patch_size=8, in_channels=3,
-        num_classes=19, head_dim=64, num_heads=12, depth=12,
-        cfg_dropout=0.1,
+        num_classes=19, head_dim=64, num_heads=12, depth=8,
+        cfg_dropout=0.05,
     ).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
