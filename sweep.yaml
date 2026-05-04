@@ -7,18 +7,17 @@ metric:
 parameters:
   lr_batch:
     values:
-      - "1e-4,32"
       - "2e-4,64"
       - "4e-4,128"
       - "8e-4,128"
   patch_size:
-    values: [8, 16]
+    value: 8
   cfg_dropout:
     values: [0.05, 0.1, 0.15]
   depth:
-    values: [4, 6, 8, 12]
+    values: [6, 8, 12]
   num_heads:
-    values: [4, 6, 8, 12]
+    values: [6, 8, 12]
   head_dim:
     value: 64
   warmup_epochs:
