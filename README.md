@@ -37,10 +37,10 @@ src/
 │   ├── dataset.py          # Dataset loading and augmentation\
 │   └── preprocess.py       # Cityscapes preprocessing and ID remapping\
 ├── train.py                # Training loop\
-└── inference.py            # Inference and image generation\
-sweep.yaml                  # W&B sweep configuration\
-train_full_job.sh           # SLURM batch script for full training runs \ 
-train_job.sh                # SLURM batch script for sweeps \ REMEMBER TO SCP IT FROM QUEST AND PUSH TO GIT PLS
+├──inference.py            # Inference and image generation\
+├──sweep.yaml                  # W&B sweep configuration\
+├──train_full_job.sh           # SLURM batch script for full training runs\
+└── train_job.sh                # SLURM batch script for sweeps 
 
 
 ---
@@ -61,8 +61,7 @@ python src/data/preprocess.py --data_dir data --output_dir processed_data
 ---
 
 ## Training
-```
-bash
+```bash
 python src/train.py \
     --lr_batch 4e-4,128 \
     --patch_size 8 \
@@ -76,8 +75,7 @@ python src/train.py \
 ---
 
 ## Inference
-```
-bash
+```bash
 python src/inference.py \
     --split val \
     --out_dir inference_out \
@@ -101,7 +99,7 @@ The mask is encoded by MaskPatchEmbedder, which one-hot encodes the 19-class seg
 
 Classifier-free guidance is implemented by training with 5% mask dropout. The mask tokens are replaced with a learned null token vector. At inference, the model runs twice per timestep (conditioned and unconditioned) and the final noise estimate is:
 
-pred = uncond + scale × (cond − uncond)
+pred_noise = unconditioned_noise + scale × (conditioned_noise − unconditioned_noise)
 
 The noise schedule is a linear DDPM schedule with T=1000, beta from 1e-4 to 0.02. The model predicts noise and is trained with MSE loss.
 
@@ -111,19 +109,19 @@ The noise schedule is a linear DDPM schedule with T=1000, beta from 1e-4 to 0.02
 
 ### Validation Samples
 
-![Validation mask|real|generated](inference_out_val\frankfurt_000000_000294.png)
-![Validation mask|real|generated](inference_out_val\frankfurt_000000_000576.png)
-![Validation mask|real|generated](inference_out_val\frankfurt_000000_001016.png)
+![Validation mask|real|generated](inference_out_val/frankfurt_000000_000294.png)
+![Validation mask|real|generated](inference_out_val/frankfurt_000000_000576.png)
+![Validation mask|real|generated](inference_out_val/frankfurt_000000_001016.png)
 
 ### Test Samples
 
-![Test generations](inference_out_test\generated\berlin_000000_000019.png)
-![Test generations](inference_out_test\generated\berlin_000001_000019.png)
-![Test generations](inference_out_test\generated\berlin_000002_000019.png)
+![Test generations](inference_out_test/generated/berlin_000000_000019.png)
+![Test generations](inference_out_test/generated/berlin_000001_000019.png)
+![Test generations](inference_out_test/generated/berlin_000002_000019.png)
 
 ### Training Curves
 
-![Training curves](W&B Training and Validation Loss Curves.png)
+![Training curves](training_curves.png)\
 You can find interactable versions of the training curves at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/runs/7igu51n8?nw=nwuserkanaghasivakumar2027
 
 ### FID Score
@@ -138,13 +136,13 @@ Admittedly, that is lower than expected, however this project trains aDiT from s
 
 All training was conducted on Quest HPC cluster using SLURM batch jobs on A100 GPUs. Hyperparameter search used W&B sweeps with Hyperband early termination across four sweeps:
 
-- **Sweep 1** : Identified a broken DDPM baseline — no proper noise schedule, mask via channel concatenation. Results non-transferable but established infrastructure.
+- **Sweep 1** : Identified a broken DDPM baseline — no proper noise schedule, mask via channel concatenation. Results non-transferable but established infrastructure.\
 Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/716m2tex?nw=nwuserkanaghasivakumar2027
-- **Sweep 2** : Fixed architecture. Identified patch_size=8 as a dominant signal. Identified LR boundary where best runs clustered at the lowest LR in the search space.
+- **Sweep 2** : Fixed architecture. Identified patch_size=8 as a dominant signal. Identified LR boundary where best runs clustered at the lowest LR in the search space.\
 Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/3tef7byl?nw=nwuserkanaghasivakumar2027
-- **Sweep 3** : Cross-attention architecture. val_loss improved from 0.017 to 0.016. Confirmed depth=12, cfg_dropout=0.05, patch_size=8.
+- **Sweep 3** : Cross-attention architecture. val_loss improved from 0.017 to 0.016. Confirmed depth=12, cfg_dropout=0.05, patch_size=8.\
 Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/4j29wkmh?nw=nwuserkanaghasivakumar2027
-- **Sweep 4** : Added 22k training images. Best config: depth=12, num_heads=8, lr=4e-4, batch=128, cfg_dropout=0.05. val_loss=0.013.
+- **Sweep 4** : Added 22k training images. Best config: depth=12, num_heads=8, lr=4e-4, batch=128, cfg_dropout=0.05. val_loss=0.013.\
 Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/eihh8bbu?nw=nwuserkanaghasivakumar2027
 
 W&B logged batch loss, grad norm, learning rate, epoch loss, and val loss across all runs, enabling cross-run analysis of convergence behavior and hyperparameter sensitivity.

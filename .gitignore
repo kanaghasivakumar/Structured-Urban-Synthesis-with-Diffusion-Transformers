@@ -3,7 +3,7 @@ dit-env/
 venv/
 .env
 
-# Root-level Data (The 11GB dataset)
+# Root-level Data
 /data/
 /processed_data/
 /test_out/
@@ -30,6 +30,6 @@ wandb/
 *.csv
 
 #files to ignore for submission
-README.md
 check.py
 /inference_out_old_*/
+/inference_out_test/berlin_*
