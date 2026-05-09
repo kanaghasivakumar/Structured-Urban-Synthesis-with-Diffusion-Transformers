@@ -4,8 +4,6 @@
 
 This project implements a conditional image generation pipeline for urban street scenes, trained entirely from scratch on the Cityscapes dataset. Given a semantic segmentation mask as input, the model generates a photorealistic street scene that recostructs the spatial layout defined by the mask. The core architecture is a Diffusion Transformer (DiT) trained with a standard DDPM noise schedule, extended with spatial cross-attention mask conditioning and classifier-free guidance (CFG).
 
-The project went through four full hyperparameter sweeps totaling over 2,400 W&B runs on Quest A100 GPUs, three major architectural revisions, and a data scaling effort that brought the training set from 2,975 to 22,973 images by integrating Cityscapes coarse annotations. The final model achieves an FID of 251.8 on the test set.
-
 ---
 
 ## Files to Look At
@@ -26,25 +24,6 @@ Supporting files:
 
 ---
 
-## Project Structure
-
-
-src/
-
-├── models/\
-│   └── dit.py              # Architecture: DiTBlock, MaskPatchEmbedder, DiT \
-├── data/\
-│   ├── dataset.py          # Dataset loading and augmentation\
-│   └── preprocess.py       # Cityscapes preprocessing and ID remapping\
-├── train.py                # Training loop\
-├──inference.py            # Inference and image generation\
-├──sweep.yaml                  # W&B sweep configuration\
-├──train_full_job.sh           # SLURM batch script for full training runs\
-└── train_job.sh                # SLURM batch script for sweeps 
-
-
----
-
 ## Installation
 
 ```bash
@@ -52,6 +31,8 @@ git clone https://github.com/kanaghasivakumar/Structured-Urban-Synthesis-with-Di
 cd Structured-Urban-Synthesis-with-Diffusion-Transformers 
 pip install -r requirements.txt
 ```
+Data needs to be downloaded from: https://www.cityscapes-dataset.com/\
+It is to be placed in data folder under gtFine, gtCoarse,  and leftImg8bit subfolders respectively. This requires a registration.
 
 Preprocess Cityscapes after downloading:
 ```bash
@@ -101,7 +82,7 @@ Classifier-free guidance is implemented by training with 5% mask dropout. The ma
 
 pred_noise = unconditioned_noise + scale × (conditioned_noise − unconditioned_noise)
 
-The noise schedule is a linear DDPM schedule with T=1000, beta from 1e-4 to 0.02. The model predicts noise and is trained with MSE loss.
+The noise schedule is a linear DDPM schedule with T=1000 and is trained with MSE loss.
 
 ---
 
@@ -109,26 +90,26 @@ The noise schedule is a linear DDPM schedule with T=1000, beta from 1e-4 to 0.02
 
 ### Validation Samples
 
-![Validation mask|real|generated](inference_out_val/frankfurt_000000_000294.png)
-![Validation mask|real|generated](inference_out_val/frankfurt_000000_000576.png)
+![Validation mask|real|generated](inference_out_val/frankfurt_000000_000294.png)\
+![Validation mask|real|generated](inference_out_val/frankfurt_000000_000576.png)\
 ![Validation mask|real|generated](inference_out_val/frankfurt_000000_001016.png)
 
 ### Test Samples
 
-![Test generations](inference_out_test/generated/berlin_000000_000019.png)
-![Test generations](inference_out_test/generated/berlin_000001_000019.png)
+![Test generations](inference_out_test/generated/berlin_000000_000019.png)\
+![Test generations](inference_out_test/generated/berlin_000001_000019.png)\
 ![Test generations](inference_out_test/generated/berlin_000002_000019.png)
 
 ### Training Curves
 
 ![Training curves](training_curves.png)\
-You can find interactable versions of the training curves at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/runs/7igu51n8?nw=nwuserkanaghasivakumar2027
+You more charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/runs/7igu51n8?nw=nwuserkanaghasivakumar2027
 
 ### FID Score
 
 **FID: 251.8** on the Cityscapes test set (500 images).
 
-Admittedly, that is lower than expected, however this project trains aDiT from scratch on 22,973 images, which is a fundamentally hard problem. The generations show some spatial structure (road at bottom, sky at top, buildings in the sides) and rough color distributions that match the mask, but lack fine texture and detail.
+This is higher than ideally expected, however this project trains a DiT from scratch on 22,973 images, which is a hard problem of my own making. The generations show some spatial structure (road at bottom, sky at top, buildings in the sides) and rough color distributions that match the mask, but lack fine texture and detail.
 
 ---
 
@@ -159,3 +140,21 @@ W&B logged batch loss, grad norm, learning rate, epoch loss, and val loss across
 - The original 2,975 fine-annotated Cityscapes images were insufficient for pixel-space diffusion. The model could not hallucinate texture it had never seen enough variety of. Extending to 22,973 images by downloading gtCoarse train_extra annotations and modifying the preprocessing pipeline to handle both annotation formats required identifying that gtCoarse uses _gtCoarse_labelIds.png naming and maps to the same 19-class ID space.
 - Training instability emerged after the data expansion: lr=8e-4 which was stable on 2,975 images caused NaN loss at epoch ~28-30 on the larger dataset, identified by grad norm collapsing before loss explosion. Dropping to lr=4e-4 resolved this. 
 - Quest and W&B infrastructure also presented repeated friction: conda environment PATH issues caused sweep agents to use system Python, weights from good training runs were overwritten by subsequent sweep runs writing to the same best_model.pt path, and SLURM syntax broke Python inline scripts requiring a workaround using the full env Python binary path throughout.
+
+---
+
+## Project Structure
+
+
+src/
+
+├── models/\
+│   └── dit.py              # Architecture: DiTBlock, MaskPatchEmbedder, DiT \
+├── data/\
+│   ├── dataset.py          # Dataset loading and augmentation\
+│   └── preprocess.py       # Cityscapes preprocessing and ID remapping\
+├── train.py                # Training loop\
+├──inference.py             # Inference and image generation\
+├──sweep.yaml               # W&B sweep configuration\
+├──train_full_job.sh        # SLURM batch script for full training runs\
+└── train_job.sh            # SLURM batch script for sweeps 
