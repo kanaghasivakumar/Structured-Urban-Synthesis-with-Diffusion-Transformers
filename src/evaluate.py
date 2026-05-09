@@ -35,7 +35,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--real_dir", type=str, required=True)
     parser.add_argument("--gen_dir", type=str, required=True)
-    parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,9 +49,7 @@ def main():
         transforms.Normalize([0.5]*3, [0.5]*3)
     ])
 
-    print("Extracting features from real images...")
     real_feats = get_inception_features(args.real_dir, inception, transform, device, args.limit)
-    print("Extracting features from generated images...")
     gen_feats = get_inception_features(args.gen_dir, inception, transform, device, args.limit)
 
     mu_r, sigma_r = real_feats.mean(0), np.cov(real_feats, rowvar=False)
