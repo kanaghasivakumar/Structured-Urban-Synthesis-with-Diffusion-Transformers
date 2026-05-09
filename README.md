@@ -31,7 +31,7 @@ git clone https://github.com/kanaghasivakumar/Structured-Urban-Synthesis-with-Di
 cd Structured-Urban-Synthesis-with-Diffusion-Transformers 
 pip install -r requirements.txt
 ```
-Data needs to be downloaded from: https://www.cityscapes-dataset.com/\
+Data needs to be downloaded from: https://www.cityscapes-dataset.com/ \
 It is to be placed in data folder under gtFine, gtCoarse,  and leftImg8bit subfolders respectively. This requires a registration.
 
 Preprocess Cityscapes after downloading:
