@@ -10,9 +10,9 @@ The project went through four full hyperparameter sweeps totaling over 2,400 W&B
 
 ## Files to Look At
 
-The three files that contain all the meaningful work are:
+The three files that contain the crux of the project are:
 
-**src/models/dit.py** : full model definition. Contains TimestepEmbedder, MaskPatchEmbedder, DiTBlock with self-attention, cross-attention, and adaLN modulation, and the top-level DiT class with the DDPM reverse process (p_sample) including CFG.
+**src/models/dit.py** : full model definition. Contains TimestepEmbedder, MaskPatchEmbedder, DiTBlock with self-attention, cross-attention, and adaLN modulation, and the DiT class with the DDPM reverse process (p_sample) including CFG.
 
 **src/train.py** : training loop. Contains the DDPM forward process, noise schedule, AdamW optimizer, linear warmup + cosine decay LR schedule, mixed precision training, early stopping, and W&B logging.
 
@@ -39,7 +39,8 @@ src/
 ├── train.py                # Training loop\
 └── inference.py            # Inference and image generation\
 sweep.yaml                  # W&B sweep configuration\
-train_full_job.sh           # SLURM batch script for full training runs \ REMEMBER TO SCP IT FROM QUEST AND PUSH TO GIT PLS
+train_full_job.sh           # SLURM batch script for full training runs \ 
+train_job.sh                # SLURM batch script for sweeps \ REMEMBER TO SCP IT FROM QUEST AND PUSH TO GIT PLS
 
 
 ---
@@ -54,7 +55,7 @@ pip install -r requirements.txt
 
 Preprocess Cityscapes after downloading:
 ```bash
-python src/data/preprocess.py --data_dir data --output_dir processed_data --workers 8
+python src/data/preprocess.py --data_dir data --output_dir processed_data 
 ```
 
 ---
@@ -110,15 +111,20 @@ The noise schedule is a linear DDPM schedule with T=1000, beta from 1e-4 to 0.02
 
 ### Validation Samples
 
-*[Insert val inference images here — mask | real | generated]*
+![Validation mask|real|generated](inference_out_val\frankfurt_000000_000294.png)
+![Validation mask|real|generated](inference_out_val\frankfurt_000000_000576.png)
+![Validation mask|real|generated](inference_out_val\frankfurt_000000_001016.png)
 
 ### Test Samples
 
-*[Insert test inference images here — mask | real | generated]*
+![Test generations](inference_out_test\generated\berlin_000000_000019.png)
+![Test generations](inference_out_test\generated\berlin_000001_000019.png)
+![Test generations](inference_out_test\generated\berlin_000002_000019.png)
 
 ### Training Curves
 
-*[Insert val loss and epoch loss curves from W&B here]*
+![Training curves](W&B Training and Validation Loss Curves.png)
+You can find interactable versions of the training curves at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/runs/7igu51n8?nw=nwuserkanaghasivakumar2027
 
 ### FID Score
 
@@ -133,9 +139,13 @@ Admittedly, that is lower than expected, however this project trains aDiT from s
 All training was conducted on Quest HPC cluster using SLURM batch jobs on A100 GPUs. Hyperparameter search used W&B sweeps with Hyperband early termination across four sweeps:
 
 - **Sweep 1** : Identified a broken DDPM baseline — no proper noise schedule, mask via channel concatenation. Results non-transferable but established infrastructure.
+Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/716m2tex?nw=nwuserkanaghasivakumar2027
 - **Sweep 2** : Fixed architecture. Identified patch_size=8 as a dominant signal. Identified LR boundary where best runs clustered at the lowest LR in the search space.
+Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/3tef7byl?nw=nwuserkanaghasivakumar2027
 - **Sweep 3** : Cross-attention architecture. val_loss improved from 0.017 to 0.016. Confirmed depth=12, cfg_dropout=0.05, patch_size=8.
+Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/4j29wkmh?nw=nwuserkanaghasivakumar2027
 - **Sweep 4** : Added 22k training images. Best config: depth=12, num_heads=8, lr=4e-4, batch=128, cfg_dropout=0.05. val_loss=0.013.
+Find charts at: https://wandb.ai/kanaghasivakumar-northwestern-university/structured-urban-synthesis/sweeps/eihh8bbu?nw=nwuserkanaghasivakumar2027
 
 W&B logged batch loss, grad norm, learning rate, epoch loss, and val loss across all runs, enabling cross-run analysis of convergence behavior and hyperparameter sensitivity.
 
