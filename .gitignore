@@ -32,4 +32,3 @@ wandb/
 #files to ignore for submission
 check.py
 /inference_out_old_*/
-/inference_out_test/berlin_*
